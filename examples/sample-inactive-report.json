@@ -1,0 +1,42 @@
+[
+  {
+    "email": "a@ex.com",
+    "name": "Alice",
+    "seat_uid": "seat-a",
+    "access_seat": true,
+    "gateway_seat": false,
+    "last_successful_login": "2025-07-03T20:05:31Z",
+    "days_inactive": 400,
+    "basis": "last_successful_login"
+  },
+  {
+    "email": "c@ex.com",
+    "name": "Carol",
+    "seat_uid": "seat-c",
+    "access_seat": false,
+    "gateway_seat": true,
+    "last_successful_login": null,
+    "days_inactive": 500,
+    "basis": "created_at (never logged in)"
+  },
+  {
+    "email": "e@ex.com",
+    "name": "Eve",
+    "seat_uid": "seat-e",
+    "access_seat": true,
+    "gateway_seat": true,
+    "last_successful_login": "2026-01-19T20:05:31Z",
+    "days_inactive": 200,
+    "basis": "last_successful_login"
+  },
+  {
+    "email": "g@ex.com",
+    "name": "Grace",
+    "seat_uid": "seat-g",
+    "access_seat": true,
+    "gateway_seat": false,
+    "last_successful_login": "2026-05-04T20:05:31Z",
+    "days_inactive": 95,
+    "basis": "last_successful_login"
+  }
+]

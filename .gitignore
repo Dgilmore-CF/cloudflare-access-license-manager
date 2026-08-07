@@ -1,0 +1,23 @@
+# Test artifacts
+test/out.json
+test/patched.json
+
+# Generated reports (don't commit real account data)
+*.results.json
+report.json
+report.csv
+/report.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# PowerShell
+*.ps1xml.bak
+
+# Node (only used by the test harness / newman)
+node_modules/
+npm-debug.log*

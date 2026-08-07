@@ -1,0 +1,49 @@
+$ Remove-InactiveAccessSeats.ps1 -AccountId <id> -ApiToken <token> -InactiveDays 90 -SeatType Either -OutputPath report.json
+
+Cloudflare Access License Manager
+Account : 11111111111111111111111111111111
+Criteria: inactive >= 90 day(s) | SeatType Either
+Mode    : REPORT-ONLY (dry run)
+
+Fetching users...
+Retrieved 7 user record(s).
+
+Found 4 inactive seat holder(s) matching criteria.
+
+
+email    name  days_inactive access_seat gateway_seat seat_uid
+-----    ----  ------------- ----------- ------------ --------
+c@ex.com Carol           500       False         True seat-c
+a@ex.com Alice           400        True        False seat-a
+e@ex.com Eve             200        True         True seat-e
+g@ex.com Grace            95        True        False seat-g
+
+Report written to /tmp/r.json
+
+Dry run complete. Re-run with -Remove to free these seats.
+
+
+$ # Preview removals without changing anything (-Remove -WhatIf):
+$ Remove-InactiveAccessSeats.ps1 -AccountId <id> -ApiToken <token> -InactiveDays 90 -Remove -WhatIf
+
+Cloudflare Access License Manager
+Account : 11111111111111111111111111111111
+Criteria: inactive >= 90 day(s) | SeatType Either
+Mode    : REMOVE (seats will be freed)
+
+Fetching users...
+Retrieved 7 user record(s).
+
+Found 4 inactive seat holder(s) matching criteria.
+
+
+email    name  days_inactive access_seat gateway_seat seat_uid
+-----    ----  ------------- ----------- ------------ --------
+c@ex.com Carol           500       False         True seat-c
+a@ex.com Alice           400        True        False seat-a
+e@ex.com Eve             200        True         True seat-e
+g@ex.com Grace            95        True        False seat-g
+
+What if: Performing the operation "Remove Zero Trust seat licensing" on target "4 seat(s) [batch 1/1]".
+
+Done. Removed: 0 | Failed: 0

@@ -1,0 +1,5 @@
+"email","name","seat_uid","access_seat","gateway_seat","last_successful_login","days_inactive","basis"
+"a@ex.com","Alice","seat-a","True","False","2025-07-03T20:05:31Z","400","last_successful_login"
+"c@ex.com","Carol","seat-c","False","True",,"500","created_at (never logged in)"
+"e@ex.com","Eve","seat-e","True","True","2026-01-19T20:05:31Z","200","last_successful_login"
+"g@ex.com","Grace","seat-g","True","False","2026-05-04T20:05:31Z","95","last_successful_login"

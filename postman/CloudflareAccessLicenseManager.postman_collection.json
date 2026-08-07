@@ -1,0 +1,398 @@
+{
+  "info": {
+    "name": "Cloudflare Access License Manager",
+    "_postman_id": "b0c1d2e3-4f56-4789-abcd-000000000001",
+    "description": "Find Cloudflare Zero Trust (Access / Gateway) seat holders who have not logged in within a configurable number of days and free their seat licensing.\n\nSETUP: set the collection variables `accountId` and `apiToken` (a Cloudflare API token with 'Access: Audit Logs Read' and 'Zero Trust: Seats Write'). Tune `inactiveDays`, `seatType` (Access|Gateway|Either|Both) and `excludeNeverLoggedIn`.\n\nUSAGE:\n1. Run '1. List Users & Flag Inactive' to build the candidate list. For accounts with more than 1000 users, run it via the Collection Runner so pagination completes.\n2. Run '2. Verify Token & Preview Candidates' to review who would be removed.\n3. Set `confirmRemoval` = true, then run '3. Remove Inactive Seats' to free the seats.\n\nFreeing a seat sets BOTH access_seat and gateway_seat to false, which is the only way Cloudflare releases (stops billing) a Zero Trust seat.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{apiToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. List Users & Flag Inactive",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Initialise pagination and reset the collected list at the start of a fresh scan.",
+              "let page = pm.collectionVariables.get('_page');",
+              "if (!page) {",
+              "  pm.collectionVariables.set('_page', '1');",
+              "  pm.collectionVariables.set('inactiveSeats', '[]');",
+              "  console.log('Starting inactive-seat scan (page 1)...');",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('List users request succeeded', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "  pm.expect(res.success).to.be.true;",
+              "});",
+              "if (!res.success) { console.error('API error:', JSON.stringify(res.errors)); return; }",
+              "",
+              "const inactiveDays = parseInt(pm.collectionVariables.get('inactiveDays') || '90', 10);",
+              "const seatType = pm.collectionVariables.get('seatType') || 'Either';",
+              "const excludeNever = String(pm.collectionVariables.get('excludeNeverLoggedIn')).toLowerCase() === 'true';",
+              "const now = Date.now();",
+              "const cutoff = now - inactiveDays * 24 * 60 * 60 * 1000;",
+              "",
+              "function holdsTarget(u) {",
+              "  const a = u.access_seat === true;",
+              "  const g = u.gateway_seat === true;",
+              "  switch (seatType) {",
+              "    case 'Access':  return a;",
+              "    case 'Gateway': return g;",
+              "    case 'Both':    return a && g;",
+              "    default:        return a || g; // Either",
+              "  }",
+              "}",
+              "",
+              "let collected = JSON.parse(pm.collectionVariables.get('inactiveSeats') || '[]');",
+              "(res.result || []).forEach(function (u) {",
+              "  if (!holdsTarget(u) || !u.seat_uid) return;",
+              "  let basis = 'last_successful_login';",
+              "  let refStr = u.last_successful_login;",
+              "  if (!refStr) {",
+              "    if (excludeNever) return;",
+              "    refStr = u.created_at;",
+              "    basis = 'created_at (never logged in)';",
+              "  }",
+              "  if (!refStr) return;",
+              "  const ref = Date.parse(refStr);",
+              "  if (isNaN(ref)) return;",
+              "  if (ref < cutoff) {",
+              "    collected.push({",
+              "      seat_uid: u.seat_uid,",
+              "      email: u.email,",
+              "      last_successful_login: u.last_successful_login || null,",
+              "      days_inactive: Math.floor((now - ref) / (24 * 60 * 60 * 1000)),",
+              "      basis: basis",
+              "    });",
+              "  }",
+              "});",
+              "pm.collectionVariables.set('inactiveSeats', JSON.stringify(collected));",
+              "",
+              "// Pagination: continue while more pages remain (Collection Runner / Newman only).",
+              "const info = res.result_info || {};",
+              "const page = parseInt(pm.collectionVariables.get('_page') || '1', 10);",
+              "const totalPages = parseInt(info.total_pages || 1, 10);",
+              "console.log('Scanned page ' + page + '/' + totalPages + ' - inactive so far: ' + collected.length);",
+              "if (page < totalPages) {",
+              "  pm.collectionVariables.set('_page', String(page + 1));",
+              "  postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "  pm.collectionVariables.unset('_page');",
+              "  const body = collected.map(function (c) {",
+              "    return { seat_uid: c.seat_uid, access_seat: false, gateway_seat: false };",
+              "  });",
+              "  pm.collectionVariables.set('removalBody', JSON.stringify(body));",
+              "  console.log('SCAN COMPLETE. ' + collected.length + ' inactive seat(s) flagged.');",
+              "  if (collected.length) { console.log(JSON.stringify(collected, null, 2)); }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/access/users?per_page=1000&page={{_page}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "accounts",
+            "{{accountId}}",
+            "access",
+            "users"
+          ],
+          "query": [
+            {
+              "key": "per_page",
+              "value": "1000"
+            },
+            {
+              "key": "page",
+              "value": "{{_page}}"
+            }
+          ]
+        },
+        "description": "Lists users and flags those whose last successful login is older than {{inactiveDays}} days (or who never logged in, unless excludeNeverLoggedIn=true). Flagged seat_uids are stored in the `inactiveSeats` collection variable. Run via the Collection Runner to auto-paginate accounts with >1000 users."
+      }
+    },
+    {
+      "name": "2. Verify Token & Preview Candidates",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const collected = JSON.parse(pm.collectionVariables.get('inactiveSeats') || '[]');",
+              "console.log('=== Inactive seat candidates (' + collected.length + ') ===');",
+              "if (collected.length) { console.log(JSON.stringify(collected, null, 2)); }",
+              "else { console.log('None collected. Run request 1 first (use the Collection Runner for accounts with >1000 users).'); }"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('API token is valid and active', function () {",
+              "  pm.expect(res.success).to.be.true;",
+              "});",
+              "console.log('Token status:', res.result ? res.result.status : 'unknown');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/tokens/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "tokens",
+            "verify"
+          ]
+        },
+        "description": "Verifies the API token is active and prints the current inactive-seat candidate list (from request 1) to the Postman console. Changes nothing."
+      }
+    },
+    {
+      "name": "3. Remove Inactive Seats",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Safety guard: refuse to run unless the operator explicitly opts in.",
+              "if (String(pm.collectionVariables.get('confirmRemoval')).toLowerCase() !== 'true') {",
+              "  throw new Error(\"Refusing to remove seats. Set collection variable 'confirmRemoval' to 'true' to proceed.\");",
+              "}",
+              "const collected = JSON.parse(pm.collectionVariables.get('inactiveSeats') || '[]');",
+              "if (!collected.length) { throw new Error('No inactive seats collected. Run request 1 first.'); }",
+              "const body = collected.map(function (c) {",
+              "  return { seat_uid: c.seat_uid, access_seat: false, gateway_seat: false };",
+              "});",
+              "pm.collectionVariables.set('removalBody', JSON.stringify(body));",
+              "console.warn('Removing ' + body.length + ' seat(s) from account ' + pm.collectionVariables.get('accountId') + '...');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.test('Seat removal succeeded', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "  pm.expect(res.success).to.be.true;",
+              "});",
+              "console.log('Seats updated:', res.result ? res.result.length : 0);",
+              "// Reset the guard so a second run must be re-authorised.",
+              "pm.collectionVariables.set('confirmRemoval', 'false');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{{removalBody}}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/access/seats",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "accounts",
+            "{{accountId}}",
+            "access",
+            "seats"
+          ]
+        },
+        "description": "DESTRUCTIVE. Frees every seat collected in `inactiveSeats` by setting access_seat and gateway_seat to false. Guarded: aborts unless the `confirmRemoval` collection variable is set to 'true'. The guard resets to 'false' after a successful run."
+      }
+    },
+    {
+      "name": "Utilities",
+      "item": [
+        {
+          "name": "Verify API Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/user/tokens/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "user",
+                "tokens",
+                "verify"
+              ]
+            },
+            "description": "Confirms the token is valid and reports its status."
+          }
+        },
+        {
+          "name": "List Users (single page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/access/users?per_page=50&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "accounts",
+                "{{accountId}}",
+                "access",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "50"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Ad-hoc look at the first page of users with their seat + login fields."
+          }
+        },
+        {
+          "name": "Remove a Single Seat (manual)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"seat_uid\": \"{{seatUid}}\",\n    \"access_seat\": false,\n    \"gateway_seat\": false\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/access/seats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "accounts",
+                "{{accountId}}",
+                "access",
+                "seats"
+              ]
+            },
+            "description": "Frees a single seat by seat_uid. Set the `seatUid` collection variable first."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.cloudflare.com/client/v4",
+      "type": "string"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "apiToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "inactiveDays",
+      "value": "90",
+      "type": "string"
+    },
+    {
+      "key": "seatType",
+      "value": "Either",
+      "type": "string"
+    },
+    {
+      "key": "excludeNeverLoggedIn",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "confirmRemoval",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "seatUid",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "inactiveSeats",
+      "value": "[]",
+      "type": "string"
+    },
+    {
+      "key": "removalBody",
+      "value": "[]",
+      "type": "string"
+    }
+  ]
+}
