@@ -23,6 +23,14 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
   const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
 
+  // Test-only: reset accumulated PATCH state so each removal assertion is hermetic.
+  // Clears the in-memory log and deletes patched.json (no auth required).
+  if (req.method === "POST" && url.pathname === "/__reset") {
+    patched.length = 0;
+    try { require("fs").unlinkSync(require("path").join(__dirname, "patched.json")); } catch (e) {}
+    return send(200, { success: true });
+  }
+
   // Auth check
   const auth = req.headers["authorization"] || "";
   if (!auth.startsWith("Bearer ")) return send(401, { success: false, errors: [{ code: 1000, message: "missing token" }] });

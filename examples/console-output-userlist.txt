@@ -1,0 +1,30 @@
+$ # User-List Mode: target specific users (email / id / seat_uid).
+$ Remove-InactiveAccessSeats.ps1 -AccountId <id> -ApiToken <token> \
+      -UserList a@ex.com,e@ex.com,f@ex.com,former.employee@ex.com -OutputPath removed.json
+
+Cloudflare Access License Manager
+Account : 11111111111111111111111111111111
+Criteria: explicit user list (4 entries) | SeatType Either
+Mode    : REPORT-ONLY (dry run)
+
+Fetching users...
+Retrieved 7 user record(s).
+
+2 supplied entries could not be matched to a removable seat:
+
+input                  reason
+-----                  ------
+f@ex.com               no matching Either seat (already unlicensed)
+former.employee@ex.com not found in account
+
+Found 2 listed seat holder(s) to remove.
+
+
+email    name  days_inactive access_seat gateway_seat seat_uid
+-----    ----  ------------- ----------- ------------ --------
+a@ex.com Alice           400        True        False seat-a
+e@ex.com Eve             200        True         True seat-e
+
+Report written to examples/sample-userlist-report.json
+
+Dry run complete. Re-run with -Remove to free these seats.

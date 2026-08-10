@@ -1,0 +1,5 @@
+[
+  "alice@example.com",
+  { "email": "bob@example.com", "note": "contractor ended" },
+  { "seat_uid": "b1e2a3d4-0000-4a2b-8c3d-000000000042" }
+]

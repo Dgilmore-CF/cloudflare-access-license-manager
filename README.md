@@ -1,8 +1,11 @@
 # Cloudflare Access License Manager
 
-Find Cloudflare **Zero Trust** (Access / Gateway) seat holders who haven't logged in
-within a configurable number of days and **free their seat licensing** — so you stop
-paying for seats nobody uses.
+Find Cloudflare **Zero Trust** (Access / Gateway) seat holders and **free their seat
+licensing** — so you stop paying for seats nobody uses. Target seats two ways:
+
+- **By inactivity** — everyone who hasn't logged in within a configurable number of days.
+- **By explicit user list** — a specific set of users you supply (offboarding, contractor
+  cleanup, etc.), regardless of how recently they logged in.
 
 Ships as two interchangeable tools that hit the same Cloudflare API:
 
@@ -27,12 +30,16 @@ A seat is **released (billing stops) only when *both* `access_seat` and `gateway
 are set to `false`.** There is no way to release "half" a seat. Both tools always send
 both flags as `false` when freeing a seat, which is the only behavior the API supports.
 
-The tool identifies inactivity from each user's `last_successful_login`:
+**Inactivity mode** identifies inactivity from each user's `last_successful_login`:
 
 - If `last_successful_login` is older than your `InactiveDays` threshold → **inactive**.
 - If the user has **never logged in** (`last_successful_login` is null), the tool falls
   back to the account **creation date** (`created_at`), so long-provisioned users who
   never signed in are treated as inactive. Use `-ExcludeNeverLoggedIn` to skip them.
+
+**User-list mode** ignores login activity entirely — it targets exactly the users you name
+(still filtered by `-SeatType`). Entries that don't match any user, or match a user who
+holds no matching seat, are reported and skipped.
 
 ---
 
@@ -52,48 +59,79 @@ Create a token at **Cloudflare Dashboard → My Profile → API Tokens → Creat
 ## Quick start (PowerShell)
 
 ```powershell
-# 1) Provide credentials (env vars are picked up automatically)
+# Provide credentials once (env vars are picked up automatically)
 $env:CLOUDFLARE_ACCOUNT_ID = "<your-account-id>"
 $env:CLOUDFLARE_API_TOKEN  = "<your-api-token>"
+```
 
-# 2) DRY RUN — report everyone inactive for 90+ days holding any seat
+### Mode 1 — by inactivity
+
+```powershell
+# DRY RUN — report everyone inactive for 90+ days holding any seat
 ./scripts/Remove-InactiveAccessSeats.ps1 -InactiveDays 90
 
-# 3) Save a report you can review/share
+# Save a report you can review/share
 ./scripts/Remove-InactiveAccessSeats.ps1 -InactiveDays 90 -OutputPath report.json
 
-# 4) Preview exactly what removal WOULD do, without changing anything
+# Preview exactly what removal WOULD do, without changing anything
 ./scripts/Remove-InactiveAccessSeats.ps1 -InactiveDays 90 -Remove -WhatIf
 
-# 5) Actually free the seats (prompts for confirmation — it's a High-impact action)
+# Actually free the seats (prompts — it's a High-impact action; add -Confirm:$false to skip)
 ./scripts/Remove-InactiveAccessSeats.ps1 -InactiveDays 90 -Remove
+```
 
-# ...or skip the prompt in automation
-./scripts/Remove-InactiveAccessSeats.ps1 -InactiveDays 90 -Remove -Confirm:$false
+### Mode 2 — by explicit user list
+
+```powershell
+# DRY RUN — target specific users by email, user id, or seat_uid
+./scripts/Remove-InactiveAccessSeats.ps1 -UserList alice@example.com,bob@example.com
+
+# From a file (.txt one-per-line, .csv, or .json — see examples/)
+./scripts/Remove-InactiveAccessSeats.ps1 -UserListPath ./offboard.csv -OutputPath report.json
+
+# Combine inline + file (merged and de-duplicated), then remove
+./scripts/Remove-InactiveAccessSeats.ps1 -UserList carol@example.com -UserListPath ./offboard.csv -Remove
+
+# Only free their Gateway (WARP) seat, leaving Access untouched is NOT possible —
+# freeing always clears both flags; -SeatType filters WHICH users qualify, e.g.:
+./scripts/Remove-InactiveAccessSeats.ps1 -UserListPath ./offboard.txt -SeatType Gateway -Remove
 ```
 
 You can also pass credentials explicitly with `-AccountId` / `-ApiToken` instead of env vars.
 
 ### Parameters
 
-| Parameter | Required | Default | Description |
+| Parameter | Mode | Default | Description |
 | --- | --- | --- | --- |
-| `-AccountId` | yes* | `$env:CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. |
-| `-ApiToken` | yes* | `$env:CLOUDFLARE_API_TOKEN` | Cloudflare API token (see permissions above). |
-| `-InactiveDays` | **yes** | — | Days since last login before a seat is "inactive" (0–3650). |
-| `-SeatType` | no | `Either` | `Access`, `Gateway`, `Either` (Access **or** Gateway), or `Both` (Access **and** Gateway). |
-| `-Remove` | no | off | Actually free seats. Omit for a report-only dry run. |
-| `-ExcludeNeverLoggedIn` | no | off | Skip users who never logged in (default: treat them as inactive via `created_at`). |
-| `-OutputPath` | no | — | Write a report. `*.json` → JSON, anything else → CSV. Removal also writes `*.results.json`. |
-| `-BatchSize` | no | `50` | Seats removed per PATCH request (1–100). |
-| `-BaseUrl` | no | `https://api.cloudflare.com/client/v4` | Override the API base (useful for testing). |
+| `-AccountId` | both | `$env:CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (flag or env var). |
+| `-ApiToken` | both | `$env:CLOUDFLARE_API_TOKEN` | Cloudflare API token (flag or env var; permissions above). |
+| `-InactiveDays` | inactivity | — | **Required in inactivity mode.** Days since last login before a seat is "inactive" (0–3650). |
+| `-ExcludeNeverLoggedIn` | inactivity | off | Skip users who never logged in (default: treat them as inactive via `created_at`). |
+| `-UserList` | user-list | — | Users to target: an array (`a,b`) or one comma-separated string (`"a,b"`). Each entry is an email, user id, or seat_uid. |
+| `-UserListPath` | user-list | — | File of users: `.txt` (one per line, `#` comments), `.csv`, or `.json`. Merged with `-UserList`. |
+| `-SeatType` | both | `Either` | `Access`, `Gateway`, `Either` (Access **or** Gateway), or `Both` (Access **and** Gateway). |
+| `-Remove` | both | off | Actually free seats. Omit for a report-only dry run. Supports `-WhatIf` / `-Confirm`. |
+| `-OutputPath` | both | — | Write a report. `*.json` → JSON, anything else → CSV. Removal also writes `*.results.json`. |
+| `-BatchSize` | both | `50` | Seats removed per PATCH request (1–100). |
+| `-BaseUrl` | both | `https://api.cloudflare.com/client/v4` | Override the API base (useful for testing). |
 
-\* Required via the flag **or** the corresponding environment variable.
+Inactivity mode (`-InactiveDays`, `-ExcludeNeverLoggedIn`) and user-list mode
+(`-UserList`, `-UserListPath`) are **mutually exclusive** — the script enforces this via
+PowerShell parameter sets. `-Remove` declares `ConfirmImpact = 'High'`, so it prompts
+before removing unless you pass `-Confirm:$false`.
 
-`-Remove` supports the standard PowerShell safety switches **`-WhatIf`** and **`-Confirm`**
-(the script declares `ConfirmImpact = 'High'`, so it prompts before removing unless you pass `-Confirm:$false`).
+### `-UserListPath` file formats
 
-### `SeatType` semantics
+- **`.txt`** — one entry per line; blank lines and lines starting with `#` are ignored.
+- **`.csv`** — a header row with any of the columns `email`, `seat_uid`, `uid`, or `id`
+  (matched case-insensitively; the first non-empty of those wins per row).
+- **`.json`** — an array of strings, or an array of objects each carrying one of
+  `email` / `seat_uid` / `uid` / `id`.
+
+Entries are de-duplicated case-insensitively. See [`examples/`](examples/) for a template of
+each format (`user-list.txt`, `user-list.csv`, `user-list.json`).
+
+### `SeatType` semantics (both modes)
 
 | Value | Targets users holding… |
 | --- | --- |
@@ -106,9 +144,10 @@ You can also pass credentials explicitly with `-AccountId` / `-ApiToken` instead
 
 `-OutputPath report.json` writes the candidate list as JSON (always a JSON array, even for
 0 or 1 result). Any other extension writes CSV. When you use `-Remove`, a companion
-`report.results.json` records the per-seat outcome (`removed` / `failed`). Dates are emitted
-as stable ISO-8601 UTC strings so JSON and CSV agree and stay locale-independent. See
-[`examples/`](examples/) for sample output.
+`report.results.json` records the per-seat outcome (`removed` / `failed`). The `basis`
+column shows why each seat was flagged (`last_successful_login`, `created_at (never logged
+in)`, or `user-list`). Dates are stable ISO-8601 UTC strings so JSON and CSV agree. See
+[`examples/`](examples/) for sample report + console output for both modes.
 
 ---
 
@@ -117,25 +156,40 @@ as stable ISO-8601 UTC strings so JSON and CSV agree and stay locale-independent
 1. Import both files from [`postman/`](postman/):
    - `CloudflareAccessLicenseManager.postman_collection.json`
    - `CloudflareAccessLicenseManager.postman_environment.json`
-2. Select the environment and fill in `accountId` and `apiToken`. Adjust `inactiveDays`,
-   `seatType`, and `excludeNeverLoggedIn` as needed.
-3. Run the requests **in order** (use the Collection Runner for pagination to work):
-   1. **List & Flag Inactive Seats** — pages through all users and builds the removal set.
-   2. **Verify Token & Preview Candidates** — confirms the token and shows what would be removed.
-   3. **Remove Inactive Seats** — **guarded**: it refuses to run unless `confirmRemoval = true`,
-      then frees every flagged seat (both flags → `false`) and resets the guard afterward.
-4. A **Utilities** folder provides standalone *Verify Token*, *List Users (single page)*,
+2. Select the environment and fill in `accountId` and `apiToken`.
+3. The collection has a folder per mode. **Run the folder for the mode you want, top to
+   bottom, using the Collection Runner** (so pagination completes for accounts with >1000 users):
+
+   **📁 Inactivity Mode** — tune `inactiveDays`, `seatType`, `excludeNeverLoggedIn`.
+   1. *List Users & Flag Inactive* — pages through users and builds the removal set.
+   2. *Verify Token & Preview* — confirms the token and prints what would be removed.
+   3. *Remove Flagged Seats* — guarded by `confirmRemoval`.
+
+   **📁 User-List Mode** — set `userList` (comma / space / newline separated emails, user
+   IDs, or seat UIDs); `seatType` still applies.
+   1. *Resolve User-List & Flag Seats* — matches your list against the account; unmatched
+      entries are reported to the console and skipped.
+   2. *Verify Token & Preview* — prints the seats that would be removed.
+   3. *Remove Flagged Seats* — guarded by `confirmRemoval`.
+
+4. To remove: set `confirmRemoval = true`, then run the mode's **Remove Flagged Seats**
+   request. It frees every flagged seat (both flags → `false`) and resets the guard to
+   `false` afterward, so a second run must be re-authorised.
+5. A **📁 Utilities** folder provides standalone *Verify Token*, *List Users (single page)*,
    and *Remove a Single Seat (manual)* requests.
 
-The collection resolves everything through collection variables, so it never mutates your
+Both modes populate the same `flaggedSeats` variable, and the collection never mutates your
 account until you deliberately set `confirmRemoval = true`.
+
+> The collection JSON is generated from [`postman/build_postman.js`](postman/build_postman.js).
+> If you edit request logic, change the builder and regenerate: `node postman/build_postman.js`.
 
 ---
 
 ## Testing
 
-The [`test/`](test/) folder validates **both** tools end-to-end against a local mock of the
-Cloudflare API (no real account touched):
+The [`test/`](test/) folder validates **both** tools and **both** modes end-to-end against a
+local mock of the Cloudflare API (no real account touched):
 
 ```bash
 ./test/run_tests.sh          # PowerShell script  (needs: pwsh, node)
@@ -155,9 +209,10 @@ See [`test/README.md`](test/README.md) for details. The PowerShell script is als
 ├── scripts/Remove-InactiveAccessSeats.ps1            # the PowerShell tool
 ├── postman/
 │   ├── CloudflareAccessLicenseManager.postman_collection.json
-│   └── CloudflareAccessLicenseManager.postman_environment.json
-├── examples/                                         # sample JSON/CSV reports + console output
-├── test/                                             # mock API + end-to-end tests for both tools
+│   ├── CloudflareAccessLicenseManager.postman_environment.json
+│   └── build_postman.js                              # regenerates the collection JSON
+├── examples/                                         # sample reports, console transcripts, user-list templates
+├── test/                                             # mock API + end-to-end tests for both tools/modes
 ├── PSScriptAnalyzerSettings.psd1                     # lint settings
 ├── LICENSE
 └── README.md

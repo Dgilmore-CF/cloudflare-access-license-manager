@@ -1,0 +1,22 @@
+[
+  {
+    "email": "a@ex.com",
+    "name": "Alice",
+    "seat_uid": "seat-a",
+    "access_seat": true,
+    "gateway_seat": false,
+    "last_successful_login": "2025-07-06T16:59:21Z",
+    "days_inactive": 400,
+    "basis": "user-list"
+  },
+  {
+    "email": "e@ex.com",
+    "name": "Eve",
+    "seat_uid": "seat-e",
+    "access_seat": true,
+    "gateway_seat": true,
+    "last_successful_login": "2026-01-22T16:59:21Z",
+    "days_inactive": 200,
+    "basis": "user-list"
+  }
+]

@@ -1,0 +1,6 @@
+# Offboarding list — one entry per line.
+# Blank lines and lines starting with '#' are ignored.
+# Each entry is an email address, a user id, or a seat_uid.
+alice@example.com
+bob@example.com
+carol@example.com
