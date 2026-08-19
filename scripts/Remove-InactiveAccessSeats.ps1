@@ -95,6 +95,10 @@
     ./Remove-InactiveAccessSeats.ps1 -UserListPath ./offboard.csv -Remove -OutputPath removed.json
 
 .NOTES
+    DISCLAIMER: This script is not a Cloudflare product and is not provided, endorsed,
+    warrantied, or supported by Cloudflare, Inc. or Cloudflare support. Use at your
+    own risk and review dry-run / -WhatIf output before removing seats.
+
     Freeing a seat sets BOTH access_seat and gateway_seat to false, per the Cloudflare
     seats API. There is no way to release only part of a seat.
     Docs: https://developers.cloudflare.com/api/resources/zero_trust/subresources/seats/
@@ -550,3 +554,4 @@ if (-not [string]::IsNullOrWhiteSpace($OutputPath) -and
     Set-Content -Path $resultsPath -Value $resultsJson -Encoding UTF8
     Write-Host ("Removal results written to {0}" -f $resultsPath)
 }
+

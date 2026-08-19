@@ -1,5 +1,10 @@
 # Cloudflare Access License Manager
 
+> [!IMPORTANT]
+> **Unofficial and unsupported:** This is a personal utility, not a Cloudflare product.
+> It is not provided, endorsed, warrantied, or supported by Cloudflare, Inc. or Cloudflare support.
+> Use at your own risk; it can remove Zero Trust seat licensing. Always review dry-run output before removal.
+
 Find Cloudflare **Zero Trust** (Access / Gateway) seat holders and **free their seat
 licensing** — so you stop paying for seats nobody uses. Target seats two ways:
 
@@ -214,6 +219,8 @@ See [`test/README.md`](test/README.md) for details. The PowerShell script is als
 ├── examples/                                         # sample reports, console transcripts, user-list templates
 ├── test/                                             # mock API + end-to-end tests for both tools/modes
 ├── PSScriptAnalyzerSettings.psd1                     # lint settings
+├── DISCLAIMER.md                                     # unofficial / unsupported notice
+├── SUPPORT.md                                        # support boundaries
 ├── LICENSE
 └── README.md
 ```
@@ -234,7 +241,6 @@ Docs: <https://developers.cloudflare.com/api/resources/zero_trust/subresources/s
 
 ## Disclaimer
 
-This tool **removes seat licensing**, which signs affected users out of Zero Trust and stops
-their seat billing. Always run a dry run (and ideally `-WhatIf`) first and review the report
-before using `-Remove` / `confirmRemoval = true`. Provided as-is under the [MIT License](LICENSE);
-it is not an official Cloudflare product.
+This repository is a personal, community-maintained utility. It is **not a Cloudflare product** and is **not provided, endorsed, warrantied, or supported by Cloudflare, Inc. or Cloudflare support**. Cloudflare support is not responsible for installing, operating, troubleshooting, validating, or maintaining this code.
+
+This tool **removes seat licensing**, which can sign affected users out of Zero Trust and stop their seat billing. Always run a dry run (and ideally `-WhatIf`) first and review the report before using `-Remove` / `confirmRemoval = true`. Provided as-is under the [MIT License](LICENSE). See [DISCLAIMER.md](DISCLAIMER.md) and [SUPPORT.md](SUPPORT.md).

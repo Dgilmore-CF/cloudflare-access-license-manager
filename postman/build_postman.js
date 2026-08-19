@@ -268,7 +268,7 @@ const collection = {
     name: "Cloudflare Access License Manager",
     _postman_id: "b0c1d2e3-4f56-4789-abcd-000000000001",
     description:
-      "Find Cloudflare Zero Trust (Access / Gateway) seat holders and free their seat licensing " +
+      "UNOFFICIAL / UNSUPPORTED: This is not a Cloudflare product and is not provided or supported by Cloudflare. Use at your own risk.\n\nFind Cloudflare Zero Trust (Access / Gateway) seat holders and free their seat licensing " +
       "(freeing a seat sets BOTH access_seat and gateway_seat to false, the only way Cloudflare " +
       "stops billing a seat).\n\n" +
       "SETUP: set the collection variables `accountId` and `apiToken` (a Cloudflare API token with " +
@@ -381,3 +381,4 @@ const environment = {
 fs.writeFileSync(path.join(outDir, "CloudflareAccessLicenseManager.postman_collection.json"), JSON.stringify(collection, null, 2) + "\n");
 fs.writeFileSync(path.join(outDir, "CloudflareAccessLicenseManager.postman_environment.json"), JSON.stringify(environment, null, 2) + "\n");
 console.log("Wrote collection + environment to", outDir);
+
