@@ -23,30 +23,65 @@ check() { if [ "$2" == "$3" ]; then echo "PASS: $1 ($3)"; PASS=$((PASS+1)); else
 # Reset the mock's accumulated PATCH log so each removal assertion is hermetic.
 reset() { node -e 'const q=require("http").request({host:"127.0.0.1",port:8787,path:"/__reset",method:"POST"},r=>{r.resume();r.on("end",()=>process.exit(0));});q.on("error",()=>process.exit(0));q.end();' 2>/dev/null; rm -f patched.json; }
 
+# helper: "seat_uid=basis" pairs from a JSON report, sorted
+bases() { node -e 'const fs=require("fs");let a=[];try{a=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));}catch(e){}const arr=Array.isArray(a)?a:(a?[a]:[]);console.log(arr.map(x=>x.seat_uid+"="+x.basis).sort().join(","));' "$1"; }
+# helper: value of a field for a given seat_uid
+field() { node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const r=a.find(x=>x.seat_uid===process.argv[2]);console.log(r?String(r[process.argv[3]]):"<missing>");' "$1" "$2" "$3"; }
+
+echo "--- inactivity mode ---"
+# Activity = later of Access login and WARP device last_seen_at. See mock_cf.js for the fixture table.
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Either -OutputPath out.json >/dev/null 2>&1
-check "Either/90 dry" "seat-a,seat-c,seat-e,seat-g" "$(seats out.json)"
+check "Either/90 dry" "seat-a,seat-e,seat-g,seat-i,seat-j" "$(seats out.json)"
+check "Either/90 basis per seat" "seat-a=last_successful_login,seat-e=last_successful_login,seat-g=last_successful_login,seat-i=device_last_seen,seat-j=created_at (never logged in)" "$(bases out.json)"
+check "WARP-only active user (Carol) NOT flagged" "" "$(field out.json seat-c basis | grep -v '<missing>')"
+check "stale Access login but recent device (Heidi) NOT flagged" "" "$(field out.json seat-h basis | grep -v '<missing>')"
+check "device-only user days_inactive from device" "120" "$(field out.json seat-i days_inactive)"
+check "device-only user last_device_seen populated" "true" "$( [ "$(field out.json seat-i last_device_seen)" != "null" ] && echo true || echo false )"
+check "no-device user last_device_seen null" "null" "$(field out.json seat-a last_device_seen)"
 
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Either -ExcludeNeverLoggedIn -OutputPath out.json >/dev/null 2>&1
-check "Either/90 excludeNever" "seat-a,seat-e,seat-g" "$(seats out.json)"
+check "Either/90 excludeNever" "seat-a,seat-e,seat-g,seat-i" "$(seats out.json)"
 
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Access -OutputPath out.json >/dev/null 2>&1
-check "Access/90" "seat-a,seat-e,seat-g" "$(seats out.json)"
+check "Access/90" "seat-a,seat-e,seat-g,seat-j" "$(seats out.json)"
 
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Gateway -OutputPath out.json >/dev/null 2>&1
-check "Gateway/90" "seat-c,seat-e" "$(seats out.json)"
+check "Gateway/90" "seat-e,seat-i" "$(seats out.json)"
 
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Both -OutputPath out.json >/dev/null 2>&1
 check "Both/90" "seat-e" "$(seats out.json)"
 
+# Threshold boundary: Ivan's device was seen 120d ago -> flagged at 119, not at 121.
+pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 119 -SeatType Gateway -OutputPath out.json >/dev/null 2>&1
+check "Gateway/119 includes 120d device user" "seat-e,seat-i" "$(seats out.json)"
+pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 121 -SeatType Gateway -OutputPath out.json >/dev/null 2>&1
+check "Gateway/121 excludes 120d device user" "seat-e" "$(seats out.json)"
+
 pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 3650 -SeatType Either -OutputPath out.json >/dev/null 2>&1
 check "Either/3650 none" "" "$(seats out.json)"
+
+# -IgnoreDeviceActivity reproduces the Access-only (legacy) behaviour: WARP-only users look never-logged-in.
+pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Either -IgnoreDeviceActivity -OutputPath out.json >/dev/null 2>&1
+check "Either/90 IgnoreDeviceActivity (legacy)" "seat-a,seat-c,seat-e,seat-g,seat-h,seat-i,seat-j" "$(seats out.json)"
+
+# Users endpoint without result_info.total_pages must still paginate through all users.
+pwsh -NoProfile -File "$SCRIPT" -AccountId acct-nototal -ApiToken testtoken -BaseUrl "$BASE" -InactiveDays 90 -SeatType Either -OutputPath out.json >/dev/null 2>&1
+check "pagination without total_pages" "seat-a,seat-e,seat-g,seat-i,seat-j" "$(seats out.json)"
+
+# Token that cannot read device registrations must fail loudly (no silent Access-only fallback)...
+rm -f out.json
+OUT=$(pwsh -NoProfile -File "$SCRIPT" -AccountId acct-nodev -ApiToken testtoken -BaseUrl "$BASE" -InactiveDays 90 -OutputPath out.json 2>&1); EC=$?
+if [ "$EC" -ne 0 ] && [ ! -f out.json ] && echo "$OUT" | grep -q "IgnoreDeviceActivity"; then echo "PASS: device 403 fails fast with guidance (exit $EC)"; PASS=$((PASS+1)); else echo "FAIL: device 403 should abort -> exit $EC"; FAIL=$((FAIL+1)); fi
+# ...unless the operator explicitly opts out.
+pwsh -NoProfile -File "$SCRIPT" -AccountId acct-nodev -ApiToken testtoken -BaseUrl "$BASE" -InactiveDays 90 -IgnoreDeviceActivity -OutputPath out.json >/dev/null 2>&1
+check "device 403 + IgnoreDeviceActivity proceeds" "seat-a,seat-c,seat-e,seat-g,seat-h,seat-i,seat-j" "$(seats out.json)"
 
 # Remove path (note: '-Confirm:$false' single-quoted so bash passes it literally to pwsh)
 reset
 OUT=$(pwsh -NoProfile -File "$SCRIPT" "${COMMON[@]}" -InactiveDays 90 -SeatType Either -Remove '-Confirm:$false' 2>&1)
-echo "$OUT" | grep -q "Removed: 4" && { echo "PASS: remove reports 4"; PASS=$((PASS+1)); } || { echo "FAIL: remove summary -> $(echo "$OUT" | tail -1)"; FAIL=$((FAIL+1)); }
+echo "$OUT" | grep -q "Removed: 5" && { echo "PASS: remove reports 5"; PASS=$((PASS+1)); } || { echo "FAIL: remove summary -> $(echo "$OUT" | tail -1)"; FAIL=$((FAIL+1)); }
 PSEATS=$(node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync("patched.json","utf8"));const flat=[].concat(...a);console.log(flat.map(x=>x.seat_uid).sort().join(","));' 2>/dev/null)
-check "remove PATCH seats" "seat-a,seat-c,seat-e,seat-g" "$PSEATS"
+check "remove PATCH seats" "seat-a,seat-e,seat-g,seat-i,seat-j" "$PSEATS"
 ALLFALSE=$(node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync("patched.json","utf8"));const flat=[].concat(...a);console.log(flat.every(x=>x.access_seat===false&&x.gateway_seat===false));' 2>/dev/null)
 check "remove sets both false" "true" "$ALLFALSE"
 

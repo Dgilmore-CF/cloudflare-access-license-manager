@@ -1,12 +1,14 @@
 [
   {
-    "email": "a@ex.com",
-    "name": "Alice",
-    "seat_uid": "seat-a",
+    "email": "b@ex.com",
+    "name": "Bob",
+    "seat_uid": "seat-b",
     "access_seat": true,
     "gateway_seat": false,
-    "last_successful_login": "2025-07-06T16:59:21Z",
-    "days_inactive": 400,
+    "last_successful_login": "2026-09-20T20:46:13Z",
+    "last_device_seen": null,
+    "last_activity": "2026-09-20T20:46:13Z",
+    "days_inactive": 10,
     "basis": "user-list"
   },
   {
@@ -15,7 +17,9 @@
     "seat_uid": "seat-e",
     "access_seat": true,
     "gateway_seat": true,
-    "last_successful_login": "2026-01-22T16:59:21Z",
+    "last_successful_login": "2026-03-14T20:46:13Z",
+    "last_device_seen": null,
+    "last_activity": "2026-03-14T20:46:13Z",
     "days_inactive": 200,
     "basis": "user-list"
   }

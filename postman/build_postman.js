@@ -11,13 +11,84 @@ const path = require("path");
 const outDir = __dirname;
 
 // ---------------------------------------------------------------------------
-// Inactivity Mode: list + flag by last-login age
+// Inactivity Mode, step 1: scan WARP device registrations for Gateway activity.
+// last_successful_login on /access/users only reflects Access logins; WARP/Gateway
+// activity lives on device registrations (last_seen_at). Cloudflare's own seat
+// expiration checks BOTH, so we must too. Cursor-paginated.
+// ---------------------------------------------------------------------------
+const deviceScanPreReq = [
+  "// First run: reset the device-activity map and the flagged list for a fresh scan.",
+  "const cursor = pm.collectionVariables.get('_cursor');",
+  "if (!cursor) {",
+  "  pm.collectionVariables.set('_deviceSeen', '{}');",
+  "  pm.collectionVariables.set('flaggedSeats', '[]');",
+  "  pm.collectionVariables.unset('_page');",
+  "  console.log('Scanning WARP device registrations for Gateway activity...');",
+  "}",
+  "// Attach the cursor only when we have one (the API rejects an empty cursor).",
+  "pm.request.url.query.remove('cursor');",
+  "if (cursor) { pm.request.url.query.add({ key: 'cursor', value: cursor }); }",
+];
+
+const deviceScanTest = [
+  "const ignore = String(pm.collectionVariables.get('ignoreDeviceActivity')).toLowerCase() === 'true';",
+  "let res = {};",
+  "try { res = pm.response.json(); } catch (e) { res = {}; }",
+  "",
+  "if (ignore) {",
+  "  console.warn('ignoreDeviceActivity=true: WARP-only users will look as if they never logged in. Judging by Access logins only.');",
+  "  pm.collectionVariables.set('_deviceSeen', '{}');",
+  "  pm.collectionVariables.unset('_cursor');",
+  "  return;",
+  "}",
+  "",
+  "pm.test('Device registrations request succeeded (needs Zero Trust: Read)', function () {",
+  "  pm.expect(pm.response.code, 'HTTP ' + pm.response.code + ' - grant the token Zero Trust: Read, or set ignoreDeviceActivity=true').to.eql(200);",
+  "  pm.expect(res.success).to.be.true;",
+  "});",
+  "if (!res.success) {",
+  "  console.error('Cannot read device registrations, so Gateway/WARP activity cannot be evaluated. Aborting scan. Errors:', JSON.stringify(res.errors));",
+  "  pm.collectionVariables.unset('_cursor');",
+  "  postman.setNextRequest(null);",
+  "  return;",
+  "}",
+  "",
+  "// Merge: key by lower-case user id AND email -> newest last_seen_at (epoch ms).",
+  "const seen = JSON.parse(pm.collectionVariables.get('_deviceSeen') || '{}');",
+  "(res.result || []).forEach(function (r) {",
+  "  const ts = Date.parse(r.last_seen_at || '');",
+  "  if (isNaN(ts) || !r.user) return;",
+  "  [r.user.id, r.user.email].forEach(function (k) {",
+  "    if (!k) return;",
+  "    const key = String(k).toLowerCase();",
+  "    if (!(key in seen) || seen[key] < ts) seen[key] = ts;",
+  "  });",
+  "});",
+  "pm.collectionVariables.set('_deviceSeen', JSON.stringify(seen));",
+  "",
+  "const next = (res.result_info || {}).cursor;",
+  "const count = (res.result || []).length;",
+  "if (next && count > 0) {",
+  "  pm.collectionVariables.set('_cursor', next);",
+  "  postman.setNextRequest(pm.info.requestName);",
+  "} else {",
+  "  pm.collectionVariables.unset('_cursor');",
+  "  console.log('Device scan complete. Activity found for ' + Object.keys(seen).length + ' user identifier(s).');",
+  "}",
+];
+
+// ---------------------------------------------------------------------------
+// Inactivity Mode, step 2: list users + flag by most-recent-activity age
 // ---------------------------------------------------------------------------
 const inactivityPreReq = [
-  "// Initialise pagination and reset the flagged list at the start of a fresh scan.",
+  "// Initialise pagination at the start of a fresh scan.",
   "let page = pm.collectionVariables.get('_page');",
   "if (!page) {",
   "  pm.collectionVariables.set('_page', '1');",
+  "  if (!pm.collectionVariables.get('_deviceSeen')) {",
+  "    console.warn('No device-activity map found. Run \"1. Scan WARP Device Activity\" first (via the Collection Runner) so Gateway users are evaluated correctly.');",
+  "    pm.collectionVariables.set('_deviceSeen', '{}');",
+  "  }",
   "  pm.collectionVariables.set('flaggedSeats', '[]');",
   "  console.log('Starting inactive-seat scan (page 1)...');",
   "}",
@@ -48,24 +119,39 @@ const inactivityTest = [
   "  }",
   "}",
   "",
+  "const deviceSeen = JSON.parse(pm.collectionVariables.get('_deviceSeen') || '{}');",
+  "function deviceLastSeen(u) {",
+  "  let best = null;",
+  "  [u.id, u.uid, u.email].forEach(function (k) {",
+  "    if (!k) return;",
+  "    const v = deviceSeen[String(k).toLowerCase()];",
+  "    if (v != null && (best === null || v > best)) best = v;",
+  "  });",
+  "  return best;",
+  "}",
+  "",
   "let collected = JSON.parse(pm.collectionVariables.get('flaggedSeats') || '[]');",
   "(res.result || []).forEach(function (u) {",
   "  if (!holdsTarget(u) || !u.seat_uid) return;",
-  "  let basis = 'last_successful_login';",
-  "  let refStr = u.last_successful_login;",
-  "  if (!refStr) {",
+  "  // Most recent activity = later of the Access login and any WARP device check-in.",
+  "  const login  = Date.parse(u.last_successful_login || '');",
+  "  const device = deviceLastSeen(u);",
+  "  let ref = null, basis = null;",
+  "  if (!isNaN(login)) { ref = login; basis = 'last_successful_login'; }",
+  "  if (device !== null && (ref === null || device > ref)) { ref = device; basis = 'device_last_seen'; }",
+  "  if (ref === null) {",
   "    if (excludeNever) return;",
-  "    refStr = u.created_at;",
+  "    ref = Date.parse(u.created_at || '');",
   "    basis = 'created_at (never logged in)';",
+  "    if (isNaN(ref)) return;",
   "  }",
-  "  if (!refStr) return;",
-  "  const ref = Date.parse(refStr);",
-  "  if (isNaN(ref)) return;",
   "  if (ref < cutoff) {",
   "    collected.push({",
   "      seat_uid: u.seat_uid,",
   "      email: u.email,",
   "      last_successful_login: u.last_successful_login || null,",
+  "      last_device_seen: device !== null ? new Date(device).toISOString() : null,",
+  "      last_activity: new Date(ref).toISOString(),",
   "      days_inactive: Math.floor((now - ref) / (24 * 60 * 60 * 1000)),",
   "      basis: basis",
   "    });",
@@ -74,9 +160,12 @@ const inactivityTest = [
   "pm.collectionVariables.set('flaggedSeats', JSON.stringify(collected));",
   "",
   "// Pagination: continue while more pages remain (Collection Runner / Newman only).",
+  "// total_pages is not guaranteed; fall back to total_count/per_page, then to 'stop on empty page'.",
   "const info = res.result_info || {};",
   "const page = parseInt(pm.collectionVariables.get('_page') || '1', 10);",
-  "const totalPages = parseInt(info.total_pages || 1, 10);",
+  "let totalPages = parseInt(info.total_pages || 0, 10);",
+  "if (!totalPages && info.total_count && info.per_page) { totalPages = Math.ceil(info.total_count / info.per_page); }",
+  "if (!totalPages) { totalPages = (res.result || []).length ? page + 1 : page; }",
   "console.log('Scanned page ' + page + '/' + totalPages + ' - flagged so far: ' + collected.length);",
   "if (page < totalPages) {",
   "  pm.collectionVariables.set('_page', String(page + 1));",
@@ -164,7 +253,9 @@ const listResolveTest = [
   "",
   "const info = res.result_info || {};",
   "const page = parseInt(pm.collectionVariables.get('_page') || '1', 10);",
-  "const totalPages = parseInt(info.total_pages || 1, 10);",
+  "let totalPages = parseInt(info.total_pages || 0, 10);",
+  "if (!totalPages && info.total_count && info.per_page) { totalPages = Math.ceil(info.total_count / info.per_page); }",
+  "if (!totalPages) { totalPages = (res.result || []).length ? page + 1 : page; }",
   "console.log('Scanned page ' + page + '/' + totalPages + ' - flagged ' + flagged.length + ' seat(s), ' + pending.length + ' unresolved');",
   "if (page < totalPages) {",
   "  pm.collectionVariables.set('_page', String(page + 1));",
@@ -242,6 +333,12 @@ const usersUrl = () => urlObj("accounts/{{accountId}}/access/users", [
   { key: "page", value: "{{_page}}" },
 ]);
 
+// `cursor` is added at runtime by the pre-request script (only when one exists).
+const registrationsUrl = () => urlObj("accounts/{{accountId}}/devices/registrations", [
+  { key: "per_page", value: "1000" },
+  { key: "status", value: "all" },
+]);
+
 const previewReq = (name) => ({
   name,
   event: [event("prerequest", previewPreReq), event("test", previewTest)],
@@ -272,11 +369,11 @@ const collection = {
       "(freeing a seat sets BOTH access_seat and gateway_seat to false, the only way Cloudflare " +
       "stops billing a seat).\n\n" +
       "SETUP: set the collection variables `accountId` and `apiToken` (a Cloudflare API token with " +
-      "'Access: Audit Logs Read' and 'Zero Trust: Seats Write').\n\n" +
+      "'Access: Users Read', 'Zero Trust: Read' and 'Zero Trust: Seats Write').\n\n" +
       "TWO MODES (run the folder for the mode you want, top to bottom, via the Collection Runner so " +
       "pagination completes):\n\n" +
-      "1) Inactivity Mode - flag everyone whose last login is older than `inactiveDays` " +
-      "(tune `seatType` and `excludeNeverLoggedIn`).\n" +
+      "1) Inactivity Mode - flag everyone whose most recent activity (Access login OR WARP device " +
+      "check-in) is older than `inactiveDays` (tune `seatType`, `excludeNeverLoggedIn`, `ignoreDeviceActivity`).\n" +
       "2) User-List Mode - flag an explicit set of users you provide in `userList` " +
       "(comma / space / newline separated emails, user IDs, or seat UIDs; `seatType` still applies).\n\n" +
       "In both modes: review with 'Verify Token & Preview', then set `confirmRemoval` = true and run " +
@@ -288,18 +385,26 @@ const collection = {
   item: [
     {
       name: "Inactivity Mode",
-      description: "Flag and remove seats whose last successful login is older than `inactiveDays`.",
+      description: "Flag and remove seats whose most recent activity (Access login OR WARP device check-in) is older than `inactiveDays`. Run the folder top to bottom with the Collection Runner.",
       item: [
         {
-          name: "1. List Users & Flag Inactive",
+          name: "1. Scan WARP Device Activity",
+          event: [event("prerequest", deviceScanPreReq), event("test", deviceScanTest)],
+          request: {
+            method: "GET", header: [], url: registrationsUrl(),
+            description: "Pages (cursor) through WARP device registrations and records each user's newest `last_seen_at` in `_deviceSeen`. Needed because `last_successful_login` on the users list only reflects Access logins - WARP/Gateway-only users would otherwise look as if they never logged in. Requires 'Zero Trust: Read'. Set `ignoreDeviceActivity=true` to skip (not recommended).",
+          },
+        },
+        {
+          name: "2. List Users & Flag Inactive",
           event: [event("prerequest", inactivityPreReq), event("test", inactivityTest)],
           request: {
             method: "GET", header: [], url: usersUrl(),
-            description: "Lists users and flags those whose last successful login is older than {{inactiveDays}} days (or who never logged in, unless excludeNeverLoggedIn=true), filtered by {{seatType}}. Flagged seats are stored in `flaggedSeats`. Run via the Collection Runner to auto-paginate accounts with >1000 users.",
+            description: "Lists users and flags those whose most recent activity - the later of `last_successful_login` and the newest device `last_seen_at` from step 1 - is older than {{inactiveDays}} days (or who have no activity at all, unless excludeNeverLoggedIn=true), filtered by {{seatType}}. Flagged seats are stored in `flaggedSeats`. Run via the Collection Runner to auto-paginate accounts with >1000 users.",
           },
         },
-        previewReq("2. Verify Token & Preview"),
-        removeReq("3. Remove Flagged Seats"),
+        previewReq("3. Verify Token & Preview"),
+        removeReq("4. Remove Flagged Seats"),
       ],
     },
     {
@@ -353,11 +458,13 @@ const collection = {
     { key: "inactiveDays", value: "90", type: "string" },
     { key: "seatType", value: "Either", type: "string" },
     { key: "excludeNeverLoggedIn", value: "false", type: "string" },
+    { key: "ignoreDeviceActivity", value: "false", type: "string" },
     { key: "userList", value: "", type: "string" },
     { key: "confirmRemoval", value: "false", type: "string" },
     { key: "seatUid", value: "", type: "string" },
     { key: "flaggedSeats", value: "[]", type: "string" },
     { key: "removalBody", value: "[]", type: "string" },
+    { key: "_deviceSeen", value: "{}", type: "string" },
   ],
 };
 
@@ -371,6 +478,7 @@ const environment = {
     { key: "inactiveDays", value: "90", type: "default", enabled: true },
     { key: "seatType", value: "Either", type: "default", enabled: true },
     { key: "excludeNeverLoggedIn", value: "false", type: "default", enabled: true },
+    { key: "ignoreDeviceActivity", value: "false", type: "default", enabled: true },
     { key: "userList", value: "", type: "default", enabled: true },
     { key: "confirmRemoval", value: "false", type: "default", enabled: true },
     { key: "seatUid", value: "", type: "default", enabled: true },

@@ -35,12 +35,29 @@ A seat is **released (billing stops) only when *both* `access_seat` and `gateway
 are set to `false`.** There is no way to release "half" a seat. Both tools always send
 both flags as `false` when freeing a seat, which is the only behavior the API supports.
 
-**Inactivity mode** identifies inactivity from each user's `last_successful_login`:
+**Inactivity mode** judges each user by their **most recent activity**, which is the
+*later* of two signals — exactly what Cloudflare's own
+[seat expiration](https://developers.cloudflare.com/cloudflare-one/team-and-resources/users/seat-management/#enable-seat-expiration)
+feature checks:
 
-- If `last_successful_login` is older than your `InactiveDays` threshold → **inactive**.
-- If the user has **never logged in** (`last_successful_login` is null), the tool falls
-  back to the account **creation date** (`created_at`), so long-provisioned users who
-  never signed in are treated as inactive. Use `-ExcludeNeverLoggedIn` to skip them.
+| Signal | Source | What it means |
+| --- | --- | --- |
+| `last_successful_login` | `GET /access/users` | Last **Cloudflare Access** authentication (App Launcher / Access app login). |
+| device `last_seen_at` | `GET /devices/registrations` | Last time one of the user's **WARP** devices connected (**Gateway** activity). |
+
+- If the later of the two is older than your `InactiveDays` threshold → **inactive**.
+  The report's `basis` column tells you which signal was decisive.
+- If the user has **no activity at all** (never logged in to Access *and* no WARP device
+  has ever checked in), the tool falls back to the account **creation date**
+  (`created_at`), so long-provisioned users who never signed in are treated as inactive.
+  Use `-ExcludeNeverLoggedIn` to skip them.
+
+> **Why both signals matter.** `last_successful_login` only records Access logins. A user
+> who exclusively uses the WARP client has `last_successful_login = null` even if they
+> connected five minutes ago. Judging by that field alone (the behaviour prior to v1.1)
+> misreports active WARP users as "never logged in" and would free seats that are in daily
+> use. `-IgnoreDeviceActivity` restores the old Access-only behaviour and is **not
+> recommended**.
 
 **User-list mode** ignores login activity entirely — it targets exactly the users you name
 (still filtered by `-SeatType`). Entries that don't match any user, or match a user who
@@ -52,12 +69,17 @@ holds no matching seat, are reported and skipped.
 
 - **PowerShell 5.1+** (Windows PowerShell) or **PowerShell 7+** (Windows/macOS/Linux) for the script.
 - **[Postman](https://www.postman.com/)** or **[newman](https://github.com/postmanlabs/newman)** for the collection.
-- A **Cloudflare API token** with:
-  - `Access: Audit Logs Read` — to list users.
-  - `Zero Trust: Seats Write` — to remove seats.
+- A **Cloudflare API token** with these **Account** permissions:
+  - `Access: Users Read` — to list users (`GET /access/users`).
+  - `Zero Trust: Read` — to read WARP device registrations for Gateway activity
+    (`GET /devices/registrations`). Only needed in inactivity mode; without it you must pass
+    `-IgnoreDeviceActivity` (not recommended, see above).
+  - `Zero Trust: Seats Write` (shown as *Seats Edit* in some dashboards) — to remove seats.
 - Your **Cloudflare Account ID** (Dashboard → any Zero Trust page → the URL, or Account Home).
 
 Create a token at **Cloudflare Dashboard → My Profile → API Tokens → Create Token → Custom token**.
+The full permission catalogue is at
+<https://developers.cloudflare.com/fundamentals/api/reference/permissions/>.
 
 ---
 
@@ -110,8 +132,9 @@ You can also pass credentials explicitly with `-AccountId` / `-ApiToken` instead
 | --- | --- | --- | --- |
 | `-AccountId` | both | `$env:CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (flag or env var). |
 | `-ApiToken` | both | `$env:CLOUDFLARE_API_TOKEN` | Cloudflare API token (flag or env var; permissions above). |
-| `-InactiveDays` | inactivity | — | **Required in inactivity mode.** Days since last login before a seat is "inactive" (0–3650). |
-| `-ExcludeNeverLoggedIn` | inactivity | off | Skip users who never logged in (default: treat them as inactive via `created_at`). |
+| `-InactiveDays` | inactivity | — | **Required in inactivity mode.** Days since the user's most recent activity (Access login **or** WARP device check-in) before a seat is "inactive" (0–3650). |
+| `-ExcludeNeverLoggedIn` | inactivity | off | Skip users with no recorded activity at all (default: treat them as inactive via `created_at`). |
+| `-IgnoreDeviceActivity` | inactivity | off | Skip the device-registration lookup and judge by `last_successful_login` only. **Not recommended** — WARP-only users will appear inactive. |
 | `-UserList` | user-list | — | Users to target: an array (`a,b`) or one comma-separated string (`"a,b"`). Each entry is an email, user id, or seat_uid. |
 | `-UserListPath` | user-list | — | File of users: `.txt` (one per line, `#` comments), `.csv`, or `.json`. Merged with `-UserList`. |
 | `-SeatType` | both | `Either` | `Access`, `Gateway`, `Either` (Access **or** Gateway), or `Both` (Access **and** Gateway). |
@@ -120,7 +143,7 @@ You can also pass credentials explicitly with `-AccountId` / `-ApiToken` instead
 | `-BatchSize` | both | `50` | Seats removed per PATCH request (1–100). |
 | `-BaseUrl` | both | `https://api.cloudflare.com/client/v4` | Override the API base (useful for testing). |
 
-Inactivity mode (`-InactiveDays`, `-ExcludeNeverLoggedIn`) and user-list mode
+Inactivity mode (`-InactiveDays`, `-ExcludeNeverLoggedIn`, `-IgnoreDeviceActivity`) and user-list mode
 (`-UserList`, `-UserListPath`) are **mutually exclusive** — the script enforces this via
 PowerShell parameter sets. `-Remove` declares `ConfirmImpact = 'High'`, so it prompts
 before removing unless you pass `-Confirm:$false`.
@@ -149,10 +172,20 @@ each format (`user-list.txt`, `user-list.csv`, `user-list.json`).
 
 `-OutputPath report.json` writes the candidate list as JSON (always a JSON array, even for
 0 or 1 result). Any other extension writes CSV. When you use `-Remove`, a companion
-`report.results.json` records the per-seat outcome (`removed` / `failed`). The `basis`
-column shows why each seat was flagged (`last_successful_login`, `created_at (never logged
-in)`, or `user-list`). Dates are stable ISO-8601 UTC strings so JSON and CSV agree. See
-[`examples/`](examples/) for sample report + console output for both modes.
+`report.results.json` records the per-seat outcome (`removed` / `failed`).
+
+Report columns:
+
+| Column | Meaning |
+| --- | --- |
+| `last_successful_login` | Last Access authentication (null = never). |
+| `last_device_seen` | Newest `last_seen_at` across the user's WARP device registrations (null = no devices). Always null in user-list mode. |
+| `last_activity` | The later of the two above — the timestamp `days_inactive` is measured from. |
+| `days_inactive` | Whole days between `last_activity` and now. |
+| `basis` | Which signal was decisive: `last_successful_login`, `device_last_seen`, `created_at (never logged in)`, or `user-list`. |
+
+Dates are stable ISO-8601 UTC strings so JSON and CSV agree. See [`examples/`](examples/)
+for sample report + console output for both modes.
 
 ---
 
@@ -165,10 +198,14 @@ in)`, or `user-list`). Dates are stable ISO-8601 UTC strings so JSON and CSV agr
 3. The collection has a folder per mode. **Run the folder for the mode you want, top to
    bottom, using the Collection Runner** (so pagination completes for accounts with >1000 users):
 
-   **📁 Inactivity Mode** — tune `inactiveDays`, `seatType`, `excludeNeverLoggedIn`.
-   1. *List Users & Flag Inactive* — pages through users and builds the removal set.
-   2. *Verify Token & Preview* — confirms the token and prints what would be removed.
-   3. *Remove Flagged Seats* — guarded by `confirmRemoval`.
+   **📁 Inactivity Mode** — tune `inactiveDays`, `seatType`, `excludeNeverLoggedIn`,
+   `ignoreDeviceActivity`.
+   1. *Scan WARP Device Activity* — cursor-pages through device registrations and records
+      each user's newest `last_seen_at` (Gateway activity). Needs `Zero Trust: Read`.
+   2. *List Users & Flag Inactive* — pages through users, combines Access login with the
+      device activity from step 1, and builds the removal set.
+   3. *Verify Token & Preview* — confirms the token and prints what would be removed.
+   4. *Remove Flagged Seats* — guarded by `confirmRemoval`.
 
    **📁 User-List Mode** — set `userList` (comma / space / newline separated emails, user
    IDs, or seat UIDs); `seatType` still applies.
@@ -229,13 +266,19 @@ See [`test/README.md`](test/README.md) for details. The PowerShell script is als
 
 ## API reference
 
-- List users: `GET /accounts/{account_id}/access/users` (paginated, `per_page` up to 1000).
+- List users: `GET /accounts/{account_id}/access/users` (page-number paginated, `per_page`
+  up to 1000). Provides `access_seat`, `gateway_seat`, `seat_uid`, `last_successful_login`
+  (Access logins only), `created_at`.
+- List WARP device registrations: `GET /accounts/{account_id}/devices/registrations`
+  (cursor paginated via `result_info.cursor`; `status=all`). Provides `user.id`,
+  `user.email`, `last_seen_at` (Gateway activity).
 - Remove seats: `PATCH /accounts/{account_id}/access/seats` with a body of
   `[{ "access_seat": false, "gateway_seat": false, "seat_uid": "<uid>" }, ...]`.
 - Verify token: `GET /user/tokens/verify`.
 
-Docs: <https://developers.cloudflare.com/api/resources/zero_trust/subresources/seats/> and
-<https://developers.cloudflare.com/cloudflare-one/identity/users/seat-management/>
+Docs: <https://developers.cloudflare.com/api/resources/zero_trust/subresources/seats/>,
+<https://developers.cloudflare.com/api/resources/zero_trust/subresources/devices/subresources/registrations/>
+and <https://developers.cloudflare.com/cloudflare-one/team-and-resources/users/seat-management/>
 
 ---
 

@@ -2,23 +2,26 @@ $ Remove-InactiveAccessSeats.ps1 -AccountId <id> -ApiToken <token> -InactiveDays
 
 Cloudflare Access License Manager
 Account : 11111111111111111111111111111111
-Criteria: inactive >= 90 day(s) | SeatType Either
+Criteria: inactive >= 90 day(s) | SeatType Either | activity = Access login OR WARP device check-in
 Mode    : REPORT-ONLY (dry run)
 
 Fetching users...
-Retrieved 7 user record(s).
+Retrieved 10 user record(s).
+Fetching WARP device registrations (Gateway activity)...
+Device activity found for 7 user identifier(s).
 
-Found 4 inactive seat holder(s) matching criteria.
+Found 5 inactive seat holder(s) matching criteria.
 
 
-email    name  days_inactive access_seat gateway_seat seat_uid
------    ----  ------------- ----------- ------------ --------
-c@ex.com Carol           500       False         True seat-c
-a@ex.com Alice           400        True        False seat-a
-e@ex.com Eve             200        True         True seat-e
-g@ex.com Grace            95        True        False seat-g
+email    name  days_inactive basis                        access_seat gateway_seat seat_uid
+-----    ----  ------------- -----                        ----------- ------------ --------
+a@ex.com Alice           400 last_successful_login               True        False seat-a
+j@ex.com Judy            300 created_at (never logged in)        True        False seat-j
+e@ex.com Eve             200 last_successful_login               True         True seat-e
+i@ex.com Ivan            120 device_last_seen                   False         True seat-i
+g@ex.com Grace            95 last_successful_login               True        False seat-g
 
-Report written to /tmp/r.json
+Report written to report.json
 
 Dry run complete. Re-run with -Remove to free these seats.
 
@@ -28,22 +31,25 @@ $ Remove-InactiveAccessSeats.ps1 -AccountId <id> -ApiToken <token> -InactiveDays
 
 Cloudflare Access License Manager
 Account : 11111111111111111111111111111111
-Criteria: inactive >= 90 day(s) | SeatType Either
+Criteria: inactive >= 90 day(s) | SeatType Either | activity = Access login OR WARP device check-in
 Mode    : REMOVE (seats will be freed)
 
 Fetching users...
-Retrieved 7 user record(s).
+Retrieved 10 user record(s).
+Fetching WARP device registrations (Gateway activity)...
+Device activity found for 7 user identifier(s).
 
-Found 4 inactive seat holder(s) matching criteria.
+Found 5 inactive seat holder(s) matching criteria.
 
 
-email    name  days_inactive access_seat gateway_seat seat_uid
------    ----  ------------- ----------- ------------ --------
-c@ex.com Carol           500       False         True seat-c
-a@ex.com Alice           400        True        False seat-a
-e@ex.com Eve             200        True         True seat-e
-g@ex.com Grace            95        True        False seat-g
+email    name  days_inactive basis                        access_seat gateway_seat seat_uid
+-----    ----  ------------- -----                        ----------- ------------ --------
+a@ex.com Alice           400 last_successful_login               True        False seat-a
+j@ex.com Judy            300 created_at (never logged in)        True        False seat-j
+e@ex.com Eve             200 last_successful_login               True         True seat-e
+i@ex.com Ivan            120 device_last_seen                   False         True seat-i
+g@ex.com Grace            95 last_successful_login               True        False seat-g
 
-What if: Performing the operation "Remove Zero Trust seat licensing" on target "4 seat(s) [batch 1/1]".
+What if: Performing the operation "Remove Zero Trust seat licensing" on target "5 seat(s) [batch 1/1]".
 
 Done. Removed: 0 | Failed: 0

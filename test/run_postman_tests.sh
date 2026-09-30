@@ -13,18 +13,21 @@ TMP="$(mktemp -t cf-alm-collection.XXXXXX.json)"
 PASS=0; FAIL=0
 trap 'rm -f "$TMP"' EXIT
 
-for bin in node jq newman; do
+for bin in node jq; do
   command -v "$bin" >/dev/null 2>&1 || { echo "MISSING dependency: $bin"; exit 2; }
 done
+# Prefer a global newman; otherwise fall back to npx (downloads on first use).
+if command -v newman >/dev/null 2>&1; then NEWMAN=(newman); else NEWMAN=(npx --yes newman); fi
 
 # Base overrides: point at the mock, enable the removal guard.
-build_collection() { # $1 = userList value
-  jq --arg ul "$1" '
-    (.variable[] | select(.key=="baseUrl").value)        = "http://127.0.0.1:8787" |
-    (.variable[] | select(.key=="accountId").value)      = "acct-test" |
-    (.variable[] | select(.key=="apiToken").value)       = "test-token" |
-    (.variable[] | select(.key=="confirmRemoval").value) = "true" |
-    (.variable[] | select(.key=="userList").value)       = $ul' "$COLLECTION" > "$TMP"
+build_collection() { # $1 = userList value, $2 = accountId (default acct-test), $3 = ignoreDeviceActivity (default false)
+  jq --arg ul "$1" --arg acct "${2:-acct-test}" --arg ida "${3:-false}" '
+    (.variable[] | select(.key=="baseUrl").value)              = "http://127.0.0.1:8787" |
+    (.variable[] | select(.key=="accountId").value)            = $acct |
+    (.variable[] | select(.key=="apiToken").value)             = "test-token" |
+    (.variable[] | select(.key=="confirmRemoval").value)       = "true" |
+    (.variable[] | select(.key=="ignoreDeviceActivity").value) = $ida |
+    (.variable[] | select(.key=="userList").value)             = $ul' "$COLLECTION" > "$TMP"
 }
 
 reset_mock() { node -e 'const q=require("http").request({host:"127.0.0.1",port:8787,path:"/__reset",method:"POST"},r=>{r.resume();r.on("end",()=>process.exit(0));});q.on("error",()=>process.exit(0));q.end();' 2>/dev/null; rm -f patched.json; }
@@ -38,19 +41,43 @@ PORT=8787 node mock_cf.js & MOCK=$!
 sleep 1
 
 run_folder() { # $1 = folder name
-  newman run "$TMP" --folder "$1" --reporters cli --reporter-cli-no-banner
+  "${NEWMAN[@]}" run "$TMP" --folder "$1" --reporters cli --reporter-cli-no-banner
 }
 
 # ---------------------------------------------------------------------------
-# Inactivity Mode: default inactiveDays=90, seatType=Either -> seat-a,c,e,g
+# Inactivity Mode: default inactiveDays=90, seatType=Either.
+# Activity = later of Access login and WARP device last_seen_at (see mock_cf.js fixture table):
+# Carol (WARP-only, seen 3d) and Heidi (stale Access login, device 20d) must NOT be flagged;
+# Ivan (device seen 120d) must be flagged from device activity. -> seat-a,e,g,i,j
 # ---------------------------------------------------------------------------
 echo "=== Inactivity Mode ==="
 build_collection ""
 reset_mock
 if run_folder "Inactivity Mode"; then echo "PASS: newman Inactivity assertions passed"; PASS=$((PASS+1)); else echo "FAIL: newman Inactivity reported failures"; FAIL=$((FAIL+1)); fi
 GOT=$(last_batch_seats)
-if [ "$GOT" == "seat-a,seat-c,seat-e,seat-g" ]; then echo "PASS: inactivity removed seat-a,seat-c,seat-e,seat-g"; PASS=$((PASS+1)); else echo "FAIL: inactivity removal -> got [$GOT]"; FAIL=$((FAIL+1)); fi
+if [ "$GOT" == "seat-a,seat-e,seat-g,seat-i,seat-j" ]; then echo "PASS: inactivity removed seat-a,seat-e,seat-g,seat-i,seat-j"; PASS=$((PASS+1)); else echo "FAIL: inactivity removal -> got [$GOT]"; FAIL=$((FAIL+1)); fi
 if [ "$(all_false)" == "true" ]; then echo "PASS: inactivity set both flags false"; PASS=$((PASS+1)); else echo "FAIL: inactivity flags not both false"; FAIL=$((FAIL+1)); fi
+
+# Users endpoint without result_info.total_pages must still paginate fully.
+echo "=== Inactivity Mode (no total_pages) ==="
+build_collection "" "acct-nototal"
+reset_mock
+run_folder "Inactivity Mode" >/dev/null 2>&1
+GOT=$(last_batch_seats)
+if [ "$GOT" == "seat-a,seat-e,seat-g,seat-i,seat-j" ]; then echo "PASS: inactivity paginates without total_pages"; PASS=$((PASS+1)); else echo "FAIL: inactivity no-total_pages -> got [$GOT]"; FAIL=$((FAIL+1)); fi
+
+# Token lacking device read: scan must abort (no PATCH issued)...
+echo "=== Inactivity Mode (device 403) ==="
+build_collection "" "acct-nodev"
+reset_mock
+run_folder "Inactivity Mode" >/dev/null 2>&1
+if [ ! -f patched.json ]; then echo "PASS: device 403 aborts before removal"; PASS=$((PASS+1)); else echo "FAIL: device 403 should abort, but PATCH was issued [$(last_batch_seats)]"; FAIL=$((FAIL+1)); fi
+# ...unless ignoreDeviceActivity=true, which reproduces Access-only (legacy) behaviour.
+build_collection "" "acct-nodev" "true"
+reset_mock
+run_folder "Inactivity Mode" >/dev/null 2>&1
+GOT=$(last_batch_seats)
+if [ "$GOT" == "seat-a,seat-c,seat-e,seat-g,seat-h,seat-i,seat-j" ]; then echo "PASS: ignoreDeviceActivity proceeds (legacy set)"; PASS=$((PASS+1)); else echo "FAIL: ignoreDeviceActivity -> got [$GOT]"; FAIL=$((FAIL+1)); fi
 
 # ---------------------------------------------------------------------------
 # User-List Mode: userList=b@ex.com,e@ex.com -> seat-b,seat-e (ignores activity)
