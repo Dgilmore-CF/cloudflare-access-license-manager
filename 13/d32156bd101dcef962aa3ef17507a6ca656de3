@@ -1,0 +1,33 @@
+examples/console-output-userlist.txt
+  s_840bd714a11ca3::t_f17477b2d735c4 1,9,13-16,21-24,26
+examples/console-output.txt
+  s_840bd714a11ca3::t_2db4fc917cad98 5,9-11,13,16-22,24,34,38-40,42,45-51,53
+examples/sample-inactive-report.csv
+  s_840bd714a11ca3::t_00fe469f7afd88 1-6
+examples/sample-inactive-report.json
+  s_840bd714a11ca3::t_f288ce98684425 8-10,20-22,32-34,37-60
+examples/sample-userlist-report.json
+  s_840bd714a11ca3::t_38b2540fec6c86 3-5,8-11,20-22
+postman/CloudflareAccessLicenseManager.postman_collection.json
+  s_840bd714a11ca3::t_085f9e6ca0a92d 5,21,24,31-134,138-141,177-187,191-197,199,201,208-209,218,221-223,266,270,316,473-475,760-764,789-793
+postman/CloudflareAccessLicenseManager.postman_environment.json
+  s_840bd714a11ca3::t_7139c4d86182be 41-46
+postman/build_postman.js
+  s_840bd714a11ca3::t_129e188e50452e 14-81,84,88-91,122-132,136-142,144,146,153-154,163,166-168,256-258,336-341,372,375-376,388,391-399,403,406-407,461,467,481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "13d32156bd101dcef962aa3ef17507a6ca656de3",
+  "prompts": {},
+  "sessions": {
+    "s_840bd714a11ca3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f0c0227c7ffeUpgGe163x6jpf2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Dgilmore-CF <dgilmore@cloudflare.com>"
+    }
+  }
+}
