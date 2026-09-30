@@ -71,7 +71,7 @@ const server = http.createServer((req, res) => {
   const auth = req.headers["authorization"] || "";
   if (!auth.startsWith("Bearer ")) return send(401, { success: false, errors: [{ code: 1000, message: "missing token" }] });
 
-  if (req.method === "GET" && url.pathname === "/user/tokens/verify") {
+  if (req.method === "GET" && (url.pathname === "/user/tokens/verify" || /^\/accounts\/[^/]+\/tokens\/verify$/.test(url.pathname))) {
     return send(200, { success: true, errors: [], messages: [], result: { id: "tok", status: "active" } });
   }
 

@@ -343,8 +343,8 @@ const previewReq = (name) => ({
   name,
   event: [event("prerequest", previewPreReq), event("test", previewTest)],
   request: {
-    method: "GET", header: [], url: urlObj("user/tokens/verify", []),
-    description: "Verifies the API token is active and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing.",
+    method: "GET", header: [], url: urlObj("accounts/{{accountId}}/tokens/verify", []),
+    description: "Verifies the API token is active against the account (works for Account-owned API tokens as well as user tokens; /user/tokens/verify rejects account tokens) and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing.",
   },
 });
 
@@ -428,7 +428,7 @@ const collection = {
       item: [
         {
           name: "Verify API Token",
-          request: { method: "GET", header: [], url: urlObj("user/tokens/verify", []), description: "Confirms the token is valid and reports its status." },
+          request: { method: "GET", header: [], url: urlObj("accounts/{{accountId}}/tokens/verify", []), description: "Confirms the token is valid for this account and reports its status. Uses the account-scoped verify endpoint so Account-owned API tokens work (GET /user/tokens/verify returns 'Invalid API Token' for those)." },
         },
         {
           name: "List Users (single page)",

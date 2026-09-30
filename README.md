@@ -77,7 +77,15 @@ holds no matching seat, are reported and skipped.
   - `Zero Trust: Seats Write` (shown as *Seats Edit* in some dashboards) — to remove seats.
 - Your **Cloudflare Account ID** (Dashboard → any Zero Trust page → the URL, or Account Home).
 
-Create a token at **Cloudflare Dashboard → My Profile → API Tokens → Create Token → Custom token**.
+Either token type works:
+
+- **User API token** — Dashboard → **My Profile → API Tokens → Create Token → Custom token**.
+- **Account-owned API token** — Dashboard → *account* → **Manage Account → Account API Tokens →
+  Create Token**. Recommended for automation since it is not tied to a person's login.
+
+Both tools verify the token with the account-scoped endpoint
+(`GET /accounts/{account_id}/tokens/verify`), which accepts either type. Do **not** test an
+account-owned token with `GET /user/tokens/verify` — it returns `1000 Invalid API Token` for those.
 The full permission catalogue is at
 <https://developers.cloudflare.com/fundamentals/api/reference/permissions/>.
 
@@ -274,7 +282,8 @@ See [`test/README.md`](test/README.md) for details. The PowerShell script is als
   `user.email`, `last_seen_at` (Gateway activity).
 - Remove seats: `PATCH /accounts/{account_id}/access/seats` with a body of
   `[{ "access_seat": false, "gateway_seat": false, "seat_uid": "<uid>" }, ...]`.
-- Verify token: `GET /user/tokens/verify`.
+- Verify token: `GET /accounts/{account_id}/tokens/verify` (account-scoped, so it works for
+  **Account-owned API tokens**; `GET /user/tokens/verify` returns `Invalid API Token` for those).
 
 Docs: <https://developers.cloudflare.com/api/resources/zero_trust/subresources/seats/>,
 <https://developers.cloudflare.com/api/resources/zero_trust/subresources/devices/subresources/registrations/>

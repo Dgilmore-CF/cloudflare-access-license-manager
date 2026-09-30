@@ -299,17 +299,18 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/user/tokens/verify",
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/tokens/verify",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "user",
+                "accounts",
+                "{{accountId}}",
                 "tokens",
                 "verify"
               ]
             },
-            "description": "Verifies the API token is active and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing."
+            "description": "Verifies the API token is active against the account (works for Account-owned API tokens as well as user tokens; /user/tokens/verify rejects account tokens) and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing."
           }
         },
         {
@@ -551,17 +552,18 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/user/tokens/verify",
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/tokens/verify",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "user",
+                "accounts",
+                "{{accountId}}",
                 "tokens",
                 "verify"
               ]
             },
-            "description": "Verifies the API token is active and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing."
+            "description": "Verifies the API token is active against the account (works for Account-owned API tokens as well as user tokens; /user/tokens/verify rejects account tokens) and prints the seats currently flagged for removal (from the List & Flag / Resolve request in this folder) to the Postman console. Changes nothing."
           }
         },
         {
@@ -646,17 +648,18 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/user/tokens/verify",
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/tokens/verify",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "user",
+                "accounts",
+                "{{accountId}}",
                 "tokens",
                 "verify"
               ]
             },
-            "description": "Confirms the token is valid and reports its status."
+            "description": "Confirms the token is valid for this account and reports its status. Uses the account-scoped verify endpoint so Account-owned API tokens work (GET /user/tokens/verify returns 'Invalid API Token' for those)."
           }
         },
         {
