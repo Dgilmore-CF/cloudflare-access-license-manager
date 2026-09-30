@@ -1,0 +1,23 @@
+postman/CloudflareAccessLicenseManager.postman_collection.json
+  s_840bd714a11ca3::t_498288f89621b2 302,307-308,313,555,560-561,566,651,656-657,662
+postman/build_postman.js
+  s_840bd714a11ca3::t_b7a6e846bdd48b 346-347,431
+test/mock_cf.js
+  s_840bd714a11ca3::t_d9d3eb0640dae4 74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2fd2849494dfb2e40f9a99d799af4eccd0b9a264",
+  "prompts": {},
+  "sessions": {
+    "s_840bd714a11ca3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f0c0227c7ffeUpgGe163x6jpf2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Dgilmore-CF <dgilmore@cloudflare.com>"
+    }
+  }
+}
